@@ -28,7 +28,7 @@ jobs:
       run: terraform init
 
     - name: Terraform Apply
-      # auto-approve prevents it from asking "Are you sure?" which would hang the automation
+      
       run: terraform apply -auto-approve
       env:
-        TF_VAR_admin_email: "sakshamkala111@gmail.com" # Update this or set as a Secret too
+        TF_VAR_admin_email: "sakshamkala111@gmail.com"

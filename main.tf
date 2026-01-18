@@ -7,30 +7,23 @@ terraform {
   }
 }
 
-# 1. Configure the AWS Provider
 provider "aws" {
-  region = "us-east-1"  # Change this if your SES verified email is in a different region
+  region = "us-east-1"
 }
 
-# Variable for your email (REPLACE THE DEFAULT VALUE)
 variable "admin_email" {
   description = "The email address verified in SES to receive reports"
   type        = string
-  default     = "sakshamkala111@gmail.com" # <--- UPDATE THIS
+  default     = ""
 }
 
-# ---------------------------------------------------------
-# 2. Storage Resources (S3 & DynamoDB)
-# ---------------------------------------------------------
-
-# Generate a random suffix so your bucket name is unique globally
 resource "random_id" "bucket_suffix" {
   byte_length = 4
 }
 
 resource "aws_s3_bucket" "data_bucket" {
   bucket        = "cloud-assignment-data-${random_id.bucket_suffix.hex}"
-  force_destroy = true  # Allows deleting bucket even if it contains files (good for testing)
+  force_destroy = true
 }
 
 resource "aws_dynamodb_table" "processed_data" {
@@ -44,11 +37,6 @@ resource "aws_dynamodb_table" "processed_data" {
   }
 }
 
-# ---------------------------------------------------------
-# 3. IAM Role (Permissions)
-# ---------------------------------------------------------
-
-# Create a role that allows Lambda to run
 resource "aws_iam_role" "lambda_role" {
   name = "assignment_lambda_role"
 
@@ -64,7 +52,6 @@ resource "aws_iam_role" "lambda_role" {
   })
 }
 
-# Attach permissions to the role (S3, DynamoDB, SES, and Logging)
 resource "aws_iam_role_policy" "lambda_policy" {
   name = "assignment_lambda_policy"
   role = aws_iam_role.lambda_role.id
@@ -104,22 +91,12 @@ resource "aws_iam_role_policy" "lambda_policy" {
   })
 }
 
-# ---------------------------------------------------------
-# 4. Prepare Code for Deployment
-# ---------------------------------------------------------
-
-# Zip the Python code automatically
 data "archive_file" "lambda_zip" {
   type        = "zip"
   source_dir  = "${path.module}/src"
   output_path = "${path.module}/lambda_function.zip"
 }
 
-# ---------------------------------------------------------
-# 5. Lambda Functions
-# ---------------------------------------------------------
-
-# Processor Function (Triggered by S3)
 resource "aws_lambda_function" "processor" {
   filename         = data.archive_file.lambda_zip.output_path
   function_name    = "DataProcessorFunction"
@@ -136,7 +113,6 @@ resource "aws_lambda_function" "processor" {
   }
 }
 
-# Reporter Function (Triggered by EventBridge)
 resource "aws_lambda_function" "reporter" {
   filename         = data.archive_file.lambda_zip.output_path
   function_name    = "DailyReportFunction"
@@ -155,11 +131,6 @@ resource "aws_lambda_function" "reporter" {
   }
 }
 
-# ---------------------------------------------------------
-# 6. Triggers (Event-Driven & Scheduled)
-# ---------------------------------------------------------
-
-# Grant S3 permission to invoke the Processor Lambda
 resource "aws_lambda_permission" "allow_s3" {
   statement_id  = "AllowExecutionFromS3"
   action        = "lambda:InvokeFunction"
@@ -168,7 +139,6 @@ resource "aws_lambda_permission" "allow_s3" {
   source_arn    = aws_s3_bucket.data_bucket.arn
 }
 
-# Configure S3 to actually send the event
 resource "aws_s3_bucket_notification" "bucket_notification" {
   bucket = aws_s3_bucket.data_bucket.id
 
@@ -180,21 +150,18 @@ resource "aws_s3_bucket_notification" "bucket_notification" {
   depends_on = [aws_lambda_permission.allow_s3]
 }
 
-# Create a Schedule (EventBridge) - Runs every day at 9 AM UTC
 resource "aws_cloudwatch_event_rule" "daily_schedule" {
   name                = "daily-report-trigger"
   description         = "Triggers daily report lambda"
   schedule_expression = "cron(0 9 * * ? *)"
 }
 
-# Target the Reporter Lambda
 resource "aws_cloudwatch_event_target" "check_foo" {
   rule      = aws_cloudwatch_event_rule.daily_schedule.name
   target_id = "reporter_lambda"
   arn       = aws_lambda_function.reporter.arn
 }
 
-# Grant EventBridge permission to invoke the Reporter Lambda
 resource "aws_lambda_permission" "allow_eventbridge" {
   statement_id  = "AllowExecutionFromEventBridge"
   action        = "lambda:InvokeFunction"
